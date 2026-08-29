@@ -1,0 +1,18 @@
+Source: nakedavp
+Section: games
+Priority: optional
+Maintainer: Michal Slonina <michal.slonina@gmail.com>
+Build-Depends: debhelper-compat (= 13), cmake, g++, libsdl3-dev, libopenal-dev, libgl1-mesa-dev
+Standards-Version: 4.6.2
+Homepage: https://github.com/michalslonina/NakedAVP
+
+Package: nakedavp
+Architecture: any
+Depends: ${shlibs:Depends}, ${misc:Depends}
+Description: Aliens versus Predator (NakedAVP) engine source port
+ An open-source engine port of Aliens versus Predator Gold (Rebellion
+ Developments, 1999-2000), rebuilt against SDL3/OpenAL/OpenGL.
+ .
+ Game data is NOT included and must be supplied separately from an
+ original CD, GOG, or Steam install of AvP Gold - this package only
+ provides the engine binary, a desktop entry and an icon.
