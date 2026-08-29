@@ -345,5 +345,8 @@ ENDIF(OPENGL_TYPE STREQUAL "OPENGLES2")
 TARGET_LINK_LIBRARIES(avp ${OPENAL_LIBRARY})
 
 INSTALL(TARGETS avp RUNTIME DESTINATION bin)
+INSTALL(FILES linux/nakedavp.desktop DESTINATION share/applications)
+INSTALL(FILES linux/nakedavp.png DESTINATION share/icons/hicolor/256x256/apps)
+INSTALL(FILES linux/nakedavp.png DESTINATION share/pixmaps)
 
 include(CPack)
