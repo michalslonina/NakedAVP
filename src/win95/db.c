@@ -267,7 +267,7 @@ void db_assert_fail(const char *exprP, const char *fileP, int line)
 	switch(db_display_type)
 	{
 		case DB_DOS:
-			printf( db_assert_textA[ 0 ] );
+			printf( "%s", db_assert_textA[ 0 ] );
 			printf("\n");
 			printf( db_assert_textA[ 1 ], exprP	);
 			printf("\n");
