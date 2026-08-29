@@ -1,0 +1,9 @@
+[Desktop Entry]
+Type=Application
+Name=Aliens vs Predator
+GenericName=AvP Source Port
+Comment=Aliens versus Predator (NakedAVP source port)
+Exec=avp
+Icon=nakedavp
+Categories=Game;ActionGame;
+Terminal=false
