@@ -1,0 +1,107 @@
+name: AppImage build
+
+on:
+  workflow_dispatch:
+  push:
+    branches:
+      - main
+  pull_request:
+    types: [opened, reopened, synchronize]
+    branches:
+      - main
+
+permissions:
+  contents: read
+
+env:
+  BUILD_TYPE: Release
+
+jobs:
+  build:
+    name: AppImage (Ubuntu 20.04 base)
+    runs-on: ubuntu-latest
+    # Built on the oldest Ubuntu with a stock gcc new enough to compile our
+    # dependencies (gcc-9 on 20.04; gcc-7 on 18.04 chokes on openal-soft's
+    # C++17 constexpr/throw patterns) - glibc is forward-compatible, so the
+    # older the build base, the more systems the resulting AppImage runs on.
+    # We deliberately do NOT install a newer compiler via PPA on top of an
+    # older base - that would risk pulling in a newer libstdc++ dependency.
+    container: ubuntu:20.04
+
+    steps:
+    - uses: actions/checkout@v6
+
+    - name: Install build dependencies
+      run: |
+        apt-get update
+        apt-get install -y --no-install-recommends \
+          build-essential git curl ca-certificates gpg wget file pkg-config ninja-build \
+          libgl1-mesa-dev libasound2-dev libpulse-dev \
+          libx11-dev libxext-dev libxrandr-dev libxcursor-dev libxi-dev libxfixes-dev \
+          libxss-dev libxkbcommon-dev libdrm-dev libgbm-dev libudev-dev libdbus-1-dev \
+          libwayland-dev wayland-protocols
+
+    - name: Install a newer cmake (Kitware apt repo)
+      # 20.04's stock cmake (3.16.3) predates the CheckLinkerFlag module
+      # openal-soft needs (added in cmake 3.18). Build-tool-only upgrade -
+      # has no effect on the compiled binary's glibc/libstdc++ dependencies.
+      run: |
+        wget -qO - https://apt.kitware.com/keys/kitware-archive-latest.asc | gpg --dearmor -o /usr/share/keyrings/kitware-archive-keyring.gpg
+        echo "deb [signed-by=/usr/share/keyrings/kitware-archive-keyring.gpg] https://apt.kitware.com/ubuntu/ focal main" > /etc/apt/sources.list.d/kitware.list
+        apt-get update
+        apt-get install -y --no-install-recommends cmake
+        cmake --version
+        gcc --version | head -1
+
+    - name: Build SDL3 from source
+      # Not packaged on Ubuntu 20.04 (too old); building it here also means
+      # it gets bundled into the AppImage instead of relying on the target
+      # system already having it - most systems don't yet.
+      run: |
+        git clone --branch release-3.2.20 --depth 1 https://github.com/libsdl-org/SDL.git /tmp/SDL3
+        cmake -S /tmp/SDL3 -B /tmp/SDL3/build -G Ninja -DCMAKE_BUILD_TYPE=${{env.BUILD_TYPE}} \
+          -DCMAKE_INSTALL_PREFIX=/opt/deps -DSDL_STATIC=OFF -DSDL_SHARED=ON
+        cmake --build /tmp/SDL3/build
+        cmake --install /tmp/SDL3/build
+
+    - name: Build OpenAL-soft from source
+      run: |
+        git clone --branch 1.24.3 --depth 1 https://github.com/kcat/openal-soft.git /tmp/openal-soft
+        cmake -S /tmp/openal-soft -B /tmp/openal-soft/build -G Ninja -DCMAKE_BUILD_TYPE=${{env.BUILD_TYPE}} \
+          -DCMAKE_INSTALL_PREFIX=/opt/deps -DLIBTYPE=SHARED
+        cmake --build /tmp/openal-soft/build
+        cmake --install /tmp/openal-soft/build
+
+    - name: Configure and build NakedAVP
+      run: |
+        cmake -S . -B build -G Ninja -DCMAKE_BUILD_TYPE=${{env.BUILD_TYPE}} -DCMAKE_PREFIX_PATH=/opt/deps
+        cmake --build build
+        ldd build/avp | grep -E "SDL3|openal"
+
+    - name: Assemble AppDir
+      run: |
+        DESTDIR=/tmp/stage cmake --install build --prefix /usr
+        mkdir -p AppDir/usr/lib
+        cp -r /tmp/stage/usr/* AppDir/usr/
+        cp /opt/deps/lib/libSDL3.so* AppDir/usr/lib/
+        cp /opt/deps/lib/libopenal.so* AppDir/usr/lib/
+
+    - name: Build AppImage (go-appimage)
+      env:
+        APPIMAGE_EXTRACT_AND_RUN: "1"
+        ARCH: x86_64
+        VERSION: "1.2.3"
+      run: |
+        curl -sL -o /tmp/appimagetool-go "https://github.com/probonopd/go-appimage/releases/download/continuous/appimagetool-947-x86_64.AppImage"
+        chmod +x /tmp/appimagetool-go
+        PREFIX="$PWD/AppDir/usr" /tmp/appimagetool-go deploy "$PWD/AppDir/usr/share/applications/nakedavp.desktop"
+        /tmp/appimagetool-go -s "$PWD/AppDir"
+        ls -la *.AppImage
+        ./*.AppImage --version
+
+    - uses: actions/upload-artifact@v6
+      with:
+        name: avp-appimage-x86_64
+        if-no-files-found: 'error'
+        path: |
+          *.AppImage
