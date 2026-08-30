@@ -1,8 +1,10 @@
 name: Release binaries
 
-# Produces deb, rpm, AppImage and Flatpak from the packaging already in this
-# repo (CPack config in CMakeLists.txt, packaging/ for the Flatpak manifest).
-# Pushing a v* tag additionally attaches everything to a GitHub Release.
+# Produces deb, rpm, Arch, AppImage and Flatpak from the packaging already in
+# this repo (CPack config in CMakeLists.txt, packaging/ for PKGBUILD and the
+# Flatpak manifest).
+# Distro coverage matches the openSUSE Build Service project. Pushing a v* tag
+# additionally attaches everything to a GitHub Release.
 
 on:
   workflow_dispatch:
@@ -15,37 +17,38 @@ permissions:
 
 env:
   BUILD_TYPE: Release
+  DEBIAN_FRONTEND: noninteractive
 
 jobs:
   # ---------------------------------------------------------------- deb / rpm
-  # Both come straight out of CPack, so the packaging lives in one place.
-  # Each distro is built in its own container because SDL3 only exists on
-  # recent releases.
+  # Both come out of CPack, so packaging lives in one place. Each distro builds
+  # in its own container because SDL3 only exists on recent releases.
   packages:
-    name: ${{ matrix.name }} (${{ matrix.arch }})
-    runs-on: ${{ matrix.runner }}
-    container: ${{ matrix.image }}
+    name: ${{ matrix.distro.name }} (${{ matrix.arch }})
+    # aarch64 runners are free for public repositories.
+    runs-on: ${{ matrix.arch == 'aarch64' && 'ubuntu-24.04-arm' || 'ubuntu-latest' }}
+    container: ${{ matrix.distro.image }}
     strategy:
       fail-fast: false
-      # Spelled out rather than using a matrix axis, because each row needs its
-      # own runner label - aarch64 needs an arm runner, which is free for
-      # public repositories.
       matrix:
-        include:
-          - { name: debian-13,    image: 'debian:13',           generator: DEB, ext: deb, arch: x86_64,  runner: ubuntu-latest }
-          - { name: debian-13,    image: 'debian:13',           generator: DEB, ext: deb, arch: aarch64, runner: ubuntu-24.04-arm }
-          - { name: ubuntu-25.10, image: 'ubuntu:25.10',        generator: DEB, ext: deb, arch: x86_64,  runner: ubuntu-latest }
-          - { name: ubuntu-25.10, image: 'ubuntu:25.10',        generator: DEB, ext: deb, arch: aarch64, runner: ubuntu-24.04-arm }
-          - { name: fedora-42,    image: 'fedora:42',           generator: RPM, ext: rpm, arch: x86_64,  runner: ubuntu-latest }
-          - { name: fedora-42,    image: 'fedora:42',           generator: RPM, ext: rpm, arch: aarch64, runner: ubuntu-24.04-arm }
-          - { name: fedora-43,    image: 'fedora:43',           generator: RPM, ext: rpm, arch: x86_64,  runner: ubuntu-latest }
-          - { name: fedora-43,    image: 'fedora:43',           generator: RPM, ext: rpm, arch: aarch64, runner: ubuntu-24.04-arm }
-          - { name: tumbleweed,   image: 'opensuse/tumbleweed', generator: RPM, ext: rpm, arch: x86_64,  runner: ubuntu-latest }
+        arch: [x86_64, aarch64]
+        distro:
+          - { name: tumbleweed,   image: 'opensuse/tumbleweed', family: suse,   generator: RPM, ext: rpm }
+          - { name: leap-16.0,    image: 'opensuse/leap:16.0',  family: suse,   generator: RPM, ext: rpm }
+          - { name: fedora-41,    image: 'fedora:41',           family: fedora, generator: RPM, ext: rpm }
+          - { name: fedora-42,    image: 'fedora:42',           family: fedora, generator: RPM, ext: rpm }
+          - { name: fedora-43,    image: 'fedora:43',           family: fedora, generator: RPM, ext: rpm }
+          - { name: fedora-44,    image: 'fedora:44',           family: fedora, generator: RPM, ext: rpm }
+          - { name: debian-13,    image: 'debian:13',           family: deb,    generator: DEB, ext: deb }
+          - { name: debian-testing, image: 'debian:testing',    family: deb,    generator: DEB, ext: deb }
+          - { name: ubuntu-25.04, image: 'ubuntu:25.04',        family: deb,    generator: DEB, ext: deb }
+          - { name: ubuntu-25.10, image: 'ubuntu:25.10',        family: deb,    generator: DEB, ext: deb }
+          - { name: ubuntu-26.04, image: 'ubuntu:26.04',        family: deb,    generator: DEB, ext: deb }
     steps:
       - uses: actions/checkout@v6
 
       - name: Install dependencies (Debian/Ubuntu)
-        if: matrix.generator == 'DEB'
+        if: matrix.distro.family == 'deb'
         run: |
           apt-get update
           apt-get install -y --no-install-recommends \
@@ -53,14 +56,15 @@ jobs:
             libsdl3-dev libopenal-dev libgl1-mesa-dev
 
       - name: Install dependencies (Fedora)
-        if: startsWith(matrix.name, 'fedora')
+        if: matrix.distro.family == 'fedora'
         run: |
           dnf install -y gcc gcc-c++ cmake ninja-build rpm-build file \
             SDL3-devel openal-soft-devel mesa-libGL-devel
 
       - name: Install dependencies (openSUSE)
-        if: matrix.name == 'tumbleweed'
+        if: matrix.distro.family == 'suse'
         run: |
+          zypper -n refresh
           zypper -n install gcc gcc-c++ cmake ninja rpm-build file \
             SDL3-devel openal-soft-devel Mesa-libGL-devel
 
@@ -72,25 +76,56 @@ jobs:
       - name: Package
         working-directory: build
         run: |
-          cpack -G ${{ matrix.generator }}
-          ls -la *.${{ matrix.ext }}
+          cpack -G ${{ matrix.distro.generator }}
+          ls -la *.${{ matrix.distro.ext }}
 
       - uses: actions/upload-artifact@v6
         with:
-          name: nakedavp-${{ matrix.name }}-${{ matrix.arch }}
+          name: nakedavp-${{ matrix.distro.name }}-${{ matrix.arch }}
           if-no-files-found: error
-          path: build/*.${{ matrix.ext }}
+          path: build/*.${{ matrix.distro.ext }}
+
+  # --------------------------------------------------------------- Arch Linux
+  # Separate from the CPack matrix because Arch packages are built with
+  # makepkg. x86_64 only: Arch Linux proper ships no aarch64 (that is the
+  # separate Arch Linux ARM project, with its own images and repositories).
+  archlinux:
+    name: arch-linux (x86_64)
+    runs-on: ubuntu-latest
+    container: archlinux:latest
+    steps:
+      - uses: actions/checkout@v6
+
+      - name: Install dependencies
+        run: |
+          pacman -Syu --noconfirm --needed \
+            base-devel cmake ninja git sdl3 openal libglvnd
+
+      - name: Build the package
+        run: |
+          # makepkg refuses to run as root.
+          useradd -m builder
+          git config --global --add safe.directory "$PWD"
+          git archive --format=tar.gz --prefix=nakedavp-1.2.3/ \
+            -o packaging/nakedavp-1.2.3.tar.gz HEAD
+          chown -R builder packaging
+          cd packaging
+          sudo -u builder makepkg -f --noconfirm
+          ls -la *.pkg.tar.zst
+
+      - uses: actions/upload-artifact@v6
+        with:
+          name: nakedavp-archlinux-x86_64
+          if-no-files-found: error
+          path: packaging/*.pkg.tar.zst
 
   # ------------------------------------------------------------------ AppImage
   # Built on the oldest base whose stock gcc can compile our dependencies, with
-  # SDL3/OpenAL bundled - see .github/workflows/build-appimage.yml for the
-  # reasoning. Duplicated here so a release carries the artifact.
+  # SDL3/OpenAL bundled - see build-appimage.yml for the full reasoning.
   appimage:
     name: AppImage (x86_64)
     runs-on: ubuntu-latest
     container: ubuntu:20.04
-    env:
-      DEBIAN_FRONTEND: noninteractive
     steps:
       - uses: actions/checkout@v6
 
@@ -150,9 +185,15 @@ jobs:
           path: '*.AppImage'
 
   # ------------------------------------------------------------------ Flatpak
+  # Both arches, which OBS could not do - it publishes no aarch64 runtimes,
+  # whereas flathub does.
   flatpak:
-    name: Flatpak (x86_64)
-    runs-on: ubuntu-latest
+    name: Flatpak (${{ matrix.arch }})
+    runs-on: ${{ matrix.arch == 'aarch64' && 'ubuntu-24.04-arm' || 'ubuntu-latest' }}
+    strategy:
+      fail-fast: false
+      matrix:
+        arch: [x86_64, aarch64]
     steps:
       - uses: actions/checkout@v6
 
@@ -167,19 +208,20 @@ jobs:
         run: |
           sudo flatpak-builder --force-clean --repo=/tmp/repo build-dir \
             packaging/io.github.michalslonina.NakedAVP.yml
-          sudo flatpak build-bundle /tmp/repo nakedavp.flatpak io.github.michalslonina.NakedAVP
-          ls -la nakedavp.flatpak
+          sudo flatpak build-bundle /tmp/repo nakedavp-${{ matrix.arch }}.flatpak \
+            io.github.michalslonina.NakedAVP
+          ls -la nakedavp-${{ matrix.arch }}.flatpak
 
       - uses: actions/upload-artifact@v6
         with:
-          name: nakedavp-flatpak
+          name: nakedavp-flatpak-${{ matrix.arch }}
           if-no-files-found: error
-          path: nakedavp.flatpak
+          path: 'nakedavp-*.flatpak'
 
   # ------------------------------------------------------------------- release
   release:
     name: Attach to release
-    needs: [packages, appimage, flatpak]
+    needs: [packages, archlinux, appimage, flatpak]
     if: startsWith(github.ref, 'refs/tags/v')
     runs-on: ubuntu-latest
     steps:
@@ -187,10 +229,10 @@ jobs:
         with:
           path: artifacts
 
-      - name: Flatten
+      - name: Collect
         run: |
           mkdir -p dist
-          find artifacts -type f \( -name '*.deb' -o -name '*.rpm' -o -name '*.AppImage' -o -name '*.flatpak' \) \
+          find artifacts -type f \( -name '*.deb' -o -name '*.rpm' -o -name '*.AppImage' -o -name '*.flatpak' -o -name '*.pkg.tar.zst' \) \
             -exec cp {} dist/ \;
           ls -la dist
 
