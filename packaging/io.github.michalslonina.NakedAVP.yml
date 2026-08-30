@@ -1,0 +1,61 @@
+# Flatpak manifest for CI (see .github/workflows/release.yml).
+#
+# This is deliberately NOT the same manifest used on the openSUSE Build Service.
+# OBS build workers have no network and its flatpak runtimes are only packaged
+# for 20.08, so the OBS manifest pins that runtime and consumes pre-fetched
+# source archives. CI has network and flathub, so it can use git sources and a
+# current runtime instead.
+app-id: io.github.michalslonina.NakedAVP
+runtime: org.freedesktop.Platform
+runtime-version: '24.08'
+sdk: org.freedesktop.Sdk
+command: avp
+
+finish-args:
+  - --socket=x11
+  - --device=dri
+  - --socket=pulseaudio
+  # Game data is not shipped - the user points the app at their own
+  # CD/GOG/Steam install of AvP Gold.
+  - --filesystem=home
+
+modules:
+  # Not in the runtime, so both are built into /app.
+  - name: SDL3
+    buildsystem: cmake-ninja
+    config-opts:
+      - -DCMAKE_BUILD_TYPE=Release
+      - -DSDL_STATIC=OFF
+      - -DSDL_SHARED=ON
+    sources:
+      - type: git
+        url: https://github.com/libsdl-org/SDL.git
+        tag: release-3.2.20
+
+  - name: openal-soft
+    buildsystem: cmake-ninja
+    config-opts:
+      - -DCMAKE_BUILD_TYPE=Release
+      - -DLIBTYPE=SHARED
+      - -DALSOFT_EXAMPLES=OFF
+      - -DALSOFT_UTILS=OFF
+    sources:
+      - type: git
+        url: https://github.com/kcat/openal-soft.git
+        tag: '1.24.3'
+
+  - name: nakedavp
+    buildsystem: cmake-ninja
+    config-opts:
+      - -DCMAKE_BUILD_TYPE=Release
+    sources:
+      # Build the checkout being tested, not a fixed revision.
+      - type: dir
+        path: ..
+    post-install:
+      # CMake already installs these; Flatpak just wants them named for the
+      # app-id.
+      - mv /app/share/applications/nakedavp.desktop /app/share/applications/io.github.michalslonina.NakedAVP.desktop
+      - sed -i "s/^Icon=.*/Icon=io.github.michalslonina.NakedAVP/" /app/share/applications/io.github.michalslonina.NakedAVP.desktop
+      - mv /app/share/icons/hicolor/256x256/apps/nakedavp.png /app/share/icons/hicolor/256x256/apps/io.github.michalslonina.NakedAVP.png
+      - rm -f /app/share/pixmaps/nakedavp.png
