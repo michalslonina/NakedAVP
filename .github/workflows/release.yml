@@ -1,8 +1,8 @@
 name: Release binaries
 
-# Produces deb, rpm, Arch, AppImage and Flatpak from the packaging already in
-# this repo (CPack config in CMakeLists.txt, packaging/ for PKGBUILD and the
-# Flatpak manifest).
+# Produces deb, rpm, AppImage and Flatpak from the packaging already in
+# this repo (CPack config in CMakeLists.txt, packaging/ for the Flatpak
+# manifest).
 # Distro coverage matches the openSUSE Build Service project. Pushing a v* tag
 # additionally attaches everything to a GitHub Release.
 
@@ -84,40 +84,6 @@ jobs:
           name: nakedavp-${{ matrix.distro.name }}-${{ matrix.arch }}
           if-no-files-found: error
           path: build/*.${{ matrix.distro.ext }}
-
-  # --------------------------------------------------------------- Arch Linux
-  # Separate from the CPack matrix because Arch packages are built with
-  # makepkg. x86_64 only: Arch Linux proper ships no aarch64 (that is the
-  # separate Arch Linux ARM project, with its own images and repositories).
-  archlinux:
-    name: arch-linux (x86_64)
-    runs-on: ubuntu-latest
-    container: archlinux:latest
-    steps:
-      - uses: actions/checkout@v6
-
-      - name: Install dependencies
-        run: |
-          pacman -Syu --noconfirm --needed \
-            base-devel cmake ninja git sdl3 openal libglvnd
-
-      - name: Build the package
-        run: |
-          # makepkg refuses to run as root.
-          useradd -m builder
-          git config --global --add safe.directory "$PWD"
-          git archive --format=tar.gz --prefix=nakedavp-1.2.3/ \
-            -o packaging/nakedavp-1.2.3.tar.gz HEAD
-          chown -R builder packaging
-          cd packaging
-          sudo -u builder makepkg -f --noconfirm
-          ls -la *.pkg.tar.zst
-
-      - uses: actions/upload-artifact@v6
-        with:
-          name: nakedavp-archlinux-x86_64
-          if-no-files-found: error
-          path: packaging/*.pkg.tar.zst
 
   # ------------------------------------------------------------------ AppImage
   # Built on the oldest base whose stock gcc can compile our dependencies, with
@@ -221,7 +187,7 @@ jobs:
   # ------------------------------------------------------------------- release
   release:
     name: Attach to release
-    needs: [packages, archlinux, appimage, flatpak]
+    needs: [packages, appimage, flatpak]
     if: startsWith(github.ref, 'refs/tags/v')
     runs-on: ubuntu-latest
     steps:
@@ -232,7 +198,7 @@ jobs:
       - name: Collect
         run: |
           mkdir -p dist
-          find artifacts -type f \( -name '*.deb' -o -name '*.rpm' -o -name '*.AppImage' -o -name '*.flatpak' -o -name '*.pkg.tar.zst' \) \
+          find artifacts -type f \( -name '*.deb' -o -name '*.rpm' -o -name '*.AppImage' -o -name '*.flatpak' \) \
             -exec cp {} dist/ \;
           ls -la dist
 
