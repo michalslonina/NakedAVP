@@ -15,6 +15,9 @@ permissions:
 
 env:
   BUILD_TYPE: Release
+  # Without this, apt pulls in tzdata and blocks forever on its interactive
+  # timezone prompt - the job just hangs until the job timeout.
+  DEBIAN_FRONTEND: noninteractive
 
 jobs:
   build:
